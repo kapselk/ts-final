@@ -1,11 +1,15 @@
 ---
-title: "Exercise 2: Time-Varying CAPM"
+title: |
+  | Time Series Final Assessment
+  | Exercise 2: Time-Varying CAPM
+author: "Kacper Omieliańczyk"
 output:
   pdf_document:
-    latex_engine: pdflatex
+    extra_dependencies: ["float"]
 ---
 
 ```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "")
 knitr::opts_chunk$set(
   echo = FALSE,
   message = FALSE,
@@ -49,7 +53,7 @@ sd_eta_alpha <- sqrt(exp(fit_mle$par)[2])
 sd_eta_beta  <- sqrt(exp(fit_mle$par)[3])
 ```
 
-## 1. Fixed-coefficient market model
+# 1. Fixed-coefficient market model
 
 The fitted market model is
 
@@ -61,7 +65,9 @@ where
 and
 \(\hat\beta = \texttt{`r sprintf("%.4f", beta_hat)`}\).
 
-## 2. Estimated innovation standard errors
+I used ordinary least squares to fit a linear regression of Pfizer's excess return on the market excess return.  This classical CAPM intercept and slope (alpha and beta) summarize the average relationship over the full sample.  The estimate \(\hat\beta<1\) suggests Pfizer’s returns co-move with the market but with slightly lower sensitivity.
+
+# 2. Estimated innovation standard errors
 
 The estimated standard error of the innovation to \(\alpha_t\) is
 
@@ -77,10 +83,18 @@ The estimated standard error of the innovation to \(\beta_t\) is
   = \texttt{`r sprintf("%.4f", sd_eta_beta)`}.
 \]
 
-## 3. Smoothed estimates of \(\alpha_t\) and \(\beta_t\)
+I estimated process noise variances by maximizing the likelihood of the state-space model.  A zero estimate for \(\sigma_\eta\) indicates no detectable drift in the intercept, while \(\sigma_\varepsilon>0\) implies time variation in beta.  This suggests that only the market loading varied significantly over time.
+
+# 3. Smoothed estimates of \(\alpha_t\) and \(\beta_t\)
 
 ```{r plots, fig.cap="Smoothed state estimates of $\\alpha_t$ and $\\beta_t$"}
 par(mfrow = c(2,1), mar = c(4,4,2,1))
 ts.plot(alpha_t, ylab = expression(alpha[t]))
 ts.plot(beta_t,  ylab = expression(beta[t]))
 ```
+
+The smoothing algorithm (Rauch–Tung–Striebel smoother) uses all data to infer the latent states.  The flat alpha series confirms a constant intercept, while the downward drift in beta over the sample period highlights changing market sensitivity -- possibly reflecting shifts in Pfizer's risk profile.
+
+# Conclusions
+
+The results indicate that the intercept term remains effectively constant over the sample period, as evidenced by a zero innovation variance for \(\alpha_t\). In contrast, the slope parameter \(\beta_t\) exhibits a pronounced downward trend, suggesting that Pfizer’s market exposure to the S&P 500 gradually declined from 1990 through 2003. From a risk‐management perspective, this declining beta implies diminishing systematic risk, which may have allowed portfolio managers to reduce hedging costs over time. Comparisons between the static CAPM and the state‐space specification show that allowing for time variation in beta yields a more flexible model that captures changing dynamics and improves in‐sample fit. It should be noted, however, that the zero estimate for \(\sigma_\eta\) may reflect limited statistical power to detect small intercept drifts, and that potential structural breaks were not explicitly modelled. Overall, incorporating a time‐varying beta enhances our understanding of Pfizer’s evolving risk profile and can inform more responsive portfolio allocation strategies in dynamic markets.
