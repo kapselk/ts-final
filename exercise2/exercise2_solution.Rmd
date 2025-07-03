@@ -1,0 +1,86 @@
+---
+title: "Exercise 2: Time-Varying CAPM"
+output:
+  pdf_document:
+    latex_engine: pdflatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  results = "asis"
+)
+library(dlm)
+
+# load data
+data   <- read.table("m-pfesp-ex9003.txt", header = FALSE)
+r_t    <- data[,1]
+rM_t   <- data[,2]
+
+# 1. Fixed-coefficient market model
+fixed_fit <- lm(r_t ~ rM_t)
+alpha_hat <- coef(fixed_fit)[1]
+beta_hat  <- coef(fixed_fit)[2]
+
+# 2. Time-varying CAPM as state-space model
+build_dlm <- function(par) {
+  V       <- exp(par[1])
+  W_alpha <- exp(par[2])
+  W_beta  <- exp(par[3])
+  dlmModReg(rM_t,
+            dV = V,
+            dW = c(W_alpha, W_beta),
+            m0 = c(alpha_hat, beta_hat),
+            C0 = diag(1e7, 2))
+}
+
+init_par <- log(c(var(r_t), 1e-2, 1e-2))
+fit_mle  <- dlmMLE(r_t, init_par, build_dlm)
+mod      <- build_dlm(fit_mle$par)
+
+filt   <- dlmFilter(r_t, mod)
+smooth <- dlmSmooth(filt)
+
+alpha_t      <- dropFirst(smooth$s)[,1]
+beta_t       <- dropFirst(smooth$s)[,2]
+sd_eta_alpha <- sqrt(exp(fit_mle$par)[2])
+sd_eta_beta  <- sqrt(exp(fit_mle$par)[3])
+```
+
+## 1. Fixed-coefficient market model
+
+The fitted market model is
+
+\[
+  r_t = \hat\alpha + \hat\beta\,r_{M,t} + e_t,
+\]
+where
+\(\hat\alpha = \texttt{`r sprintf("%.4f", alpha_hat)`}\)
+and
+\(\hat\beta = \texttt{`r sprintf("%.4f", beta_hat)`}\).
+
+## 2. Estimated innovation standard errors
+
+The estimated standard error of the innovation to \(\alpha_t\) is
+
+\[
+  \widehat\sigma_{\eta}
+  = \texttt{`r sprintf("%.4f", sd_eta_alpha)`}.
+\]
+
+The estimated standard error of the innovation to \(\beta_t\) is
+
+\[
+  \widehat\sigma_{\varepsilon}
+  = \texttt{`r sprintf("%.4f", sd_eta_beta)`}.
+\]
+
+## 3. Smoothed estimates of \(\alpha_t\) and \(\beta_t\)
+
+```{r plots, fig.cap="Smoothed state estimates of $\\alpha_t$ and $\\beta_t$"}
+par(mfrow = c(2,1), mar = c(4,4,2,1))
+ts.plot(alpha_t, ylab = expression(alpha[t]))
+ts.plot(beta_t,  ylab = expression(beta[t]))
+```
