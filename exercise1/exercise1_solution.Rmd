@@ -1,0 +1,118 @@
+---
+title: |
+  | Time Series Final Assessment
+  | Exercise 1: Alcoa Realised Volatility Analysis
+author: "Kacper Omieliańczyk (459458)"
+output:
+  pdf_document:
+    extra_dependencies: ["float"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "")
+library(forecast)
+library(ggplot2)
+library(dlm)
+library(KFAS)
+```
+
+## 1. Load Data
+
+In this section, we begin by reading the realised volatility data for Alcoa stock and applying a logarithmic transformation. This is standard practice when working with volatility series, as it helps stabilize variance and improve modeling.
+
+```{r}
+vol_data <- scan("aa-rv-20m.txt")
+log_vol <- log(vol_data)
+ts_log_vol <- ts(log_vol)
+```
+
+### Plot: Log Realised Volatility
+
+Below we visualize the log-transformed realised volatility over time.
+
+```{r, fig.cap="Log Realised Volatility of Alcoa Stock"}
+autoplot(ts_log_vol) +
+  ggtitle("Log Realised Volatility of Alcoa Stock") +
+  ylab("Log Volatility") + xlab("Time")
+```
+
+The plot of log-realised volatility displays significant variability over time, with frequent shifts between calm and turbulent periods. These fluctuations are characteristic of financial time series and highlight the need for models that can capture both short-term dynamics and longer-term structural movements.
+
+## 2. ARIMA(0,1,1) Model Fit
+
+To capture short-term dynamics in the log-volatility series, we fit an ARIMA(0,1,1) model, which assumes a random walk component with a moving average term.
+
+```{r}
+arima_model <- Arima(log_vol, order = c(0,1,1))
+arima_ma1 <- coef(arima_model)["ma1"]
+arima_sigma2 <- arima_model$sigma2
+```
+
+The fitted ARIMA(0,1,1) model yielded the following estimates:
+
+- The moving average parameter (MA(1)) is estimated as `r round(arima_ma1, 4)`.
+- The estimated variance of the residuals is `r round(arima_sigma2, 5)`.
+
+The estimated MA(1) coefficient suggests strong negative autocorrelation in the differenced log-volatility. The resiudal variance is moderate, indicating a reasonable fit for short-term fluactations.
+
+## 3. Local Level State Space Model
+
+We now estimate a local level model using the state-space representation. This approach decomposes the log-volatility series into a time-varying level plus observation noise.
+
+```{r}
+model_ll <- SSModel(ts_log_vol ~ SSMtrend(degree = 1, Q = list(NA)), H = NA)
+fit_kfas <- fitSSM(model_ll, inits = c(0.1, 0.1), method = "BFGS")
+fitted_model <- fit_kfas$model
+sigma_e2 <- fitted_model$H[1]
+sigma_eta2 <- fitted_model$Q[[1]][1]
+```
+
+The local level model estimation provided the following variance estimates:
+
+- Observation error variance $\sigma_{\varepsilon}^2 = \texttt{`r round(sigma_e2, 5)`}$
+- State (level) error variance $\sigma_{\eta}^2 = \texttt{`r round(sigma_eta2, 5)`}$
+
+The estimated observation variance is considerably larger than the state variance. This implies the most of the variation in the observed series is due to high-frequency noise, while the underlying trend (state) evolves slowly and smoothly. This is a good match for volatility modelling, where we expect rapid fluactations around a relatively stable underlying level.
+
+## 4. Smoothed Local Trend with 95% Confidence Interval
+
+We now apply Kalman smoothing to estimate the latent local level $\mu_t$ over time.
+
+```{r}
+smoothed <- KFS(fitted_model, smoothing = c("state", "signal"))
+smoothed_mu <- drop(smoothed$alphahat)
+ci <- 1.96 * sqrt(drop(smoothed$V[1,1,]))
+ci_upper <- smoothed_mu + ci
+ci_lower <- smoothed_mu - ci
+time_idx <- time(ts_log_vol)
+
+df_trend <- data.frame(
+  Time = time_idx,
+  Smoothed = smoothed_mu,
+  Lower = ci_lower,
+  Upper = ci_upper
+)
+```
+
+The following plot presents the smoothed local trend of the log-volatility series, with a 95\% confidence band:
+
+```{r, fig.cap="Smoothed Local Trend with 95% Confidence Interval", fig.pos='H'}
+ggplot(df_trend, aes(x = Time, y = Smoothed)) +
+  geom_line(color = "blue") +
+  geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.3) +
+  labs(title = "Smoothed Local Trend of Log Volatility",
+       y = "Smoothed Trend", x = "Time")
+```
+
+The trend plot with 95 confidence bands shows periods of both rising and falling volatility, with a recent upward shift. The confidence intervals widen slightly at the edges, which is expected due to boundary uncertainty in the Kalman smoother. The overall smoothness confirms the earlier inference that the state dynamics are dominated by low-variance innovations.
+
+---
+
+**Conclusion:** This exercise applied two complementary time series model to the log-transformed realised volatility of Alcoa stock.
+
+* The ARIMA(0, 1, 1) model effectively captured the short-run dependence structure in the volatility changes, confirming the presence of negative autocorrelation.
+* In contrast, the local level state-space model revealed a slowly evolving latent trend, masked by relatively high observation noise.
+* The smoothed trend, with confidence bands, provides insight into the persistent structure of volatility beyond daily fluctuations.
+
+Together, these models present a comprehensive understanding of volatility behavior -- balancing short-term stochastic shocks with a more stable underlying trend. This dual modeling approach is especially useful in financial econometrics for forecasting, risk management, and policy evaluation.
