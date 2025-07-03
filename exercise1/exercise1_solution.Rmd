@@ -2,7 +2,7 @@
 title: |
   | Time Series Final Assessment
   | Exercise 1: Alcoa Realised Volatility Analysis
-author: "Kacper Omieliańczyk (459458)"
+author: "Kacper Omieliańczyk"
 output:
   pdf_document:
     extra_dependencies: ["float"]
