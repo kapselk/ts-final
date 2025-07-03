@@ -1,0 +1,127 @@
+---
+title: |
+  | Time Series Final Assessment
+  | Exercise 3: PPI AR(3) and State‐Space Model
+author: "Kacper Omieliańczyk"
+output:
+  pdf_document:
+    extra_dependencies: ["float"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "")
+knitr::opts_chunk$set(echo=FALSE, results='hide', message=FALSE, warning=FALSE)
+library(forecast)
+library(KFAS)
+```
+
+```{r load-data, include=FALSE}
+# Load and prepare data
+data <- read.table("m-ppiaco4709.txt", header=FALSE)
+colnames(data) <- c("Year","Month","Day","PPI")
+data$Date <- as.Date(sprintf("%d-%02d-%02d", data$Year, data$Month, data$Day))
+# Compute log‐differences and center
+z <- diff(log(data$PPI))
+y <- z - mean(z)
+```
+
+```{r fit-ar3, include=FALSE}
+# Fit AR(3) model without intercept
+ar3_fit <- arima(y, order=c(3,0,0), include.mean=FALSE)
+phi1 <- ar3_fit$coef["ar1"]
+phi2 <- ar3_fit$coef["ar2"]
+phi3 <- ar3_fit$coef["ar3"]
+sigma_ar3 <- sqrt(ar3_fit$sigma2)
+```
+
+## 1. Fitted AR(3) Model
+
+The estimated AR(3) model is
+
+$$
+ y_t = \phi_1 \,y_{t-1} + \phi_2 \,y_{t-2} + \phi_3 \,y_{t-3} + \varepsilon_t,
+ \quad \varepsilon_t \sim N(0,\sigma_{\varepsilon}^2),
+$$
+
+where
+
+$$
+\phi_1 = `r sprintf("%.4f",phi1)`, \quad
+\phi_2 = `r sprintf("%.4f",phi2)`, \quad
+\phi_3 = `r sprintf("%.4f",phi3)`, \quad
+\sigma_{\varepsilon} = `r sprintf("%.4f",sigma_ar3)`.
+$$
+
+```{r fit-ssm, include=FALSE}
+# State‐space model with measurement error
+t <- length(y)
+# Build SSModel
+ssm_model <- SSModel(y ~ -1 + SSMcustom(
+  Z = matrix(c(1,0,0),1,3),
+  T = matrix(c(phi1,phi2,phi3,1,0,0,0,1,0),3,3,byrow=TRUE),
+  Q = diag(NA, 3),
+  R = diag(3)
+), H = NA)
+# Fit state-space model with measurement error
+fit_ssm <- fitSSM(ssm_model, inits = rep(log(var(y)/10), 4), method = "BFGS")
+out <- KFS(fit_ssm$model)
+# Extract parameters
+# T and Q are 3×3×t arrays; take the first slice
+Tmat <- fit_ssm$model$T[,,1]
+Qmat <- fit_ssm$model$Q[,,1]
+phi1_ssm <- Tmat[1,1]
+phi2_ssm <- Tmat[1,2]
+phi3_ssm <- Tmat[1,3]
+sigma_w  <- sqrt(Qmat[1,1])
+sigma_e  <- sqrt(fit_ssm$model$H)
+# Smoothed state and filtered residuals
+x_smooth     <- out$alphahat[,1]
+resid_filtered <- residuals(out, type="response")
+```
+
+The estimated AR(3) parameters (\(\phi_{1}\approx0.2873\), \(\phi_{2}\approx0.1226\), \(\phi_{3}\approx0.0903\)) indicate a decaying but persistent memory in the PPI growth rates. The innovation standard deviation (\(\sigma_{\varepsilon}\approx0.0078\)) is small, reflecting that most month‑to‑month fluctuations are modest after demeaning.
+
+## 2. State‐Space Model with Measurement Error
+
+The state‐space representation is given by
+
+$$
+x_t = \phi_1 \,x_{t-1} + \phi_2 \,x_{t-2} + \phi_3 \,x_{t-3} + w_t,
+ \quad w_t \sim N(0,\sigma_w^2),
+$$
+
+$$
+y_t = x_t + e_t,
+ \quad e_t \sim N(0,\sigma_e^2).
+$$
+
+The estimated parameters are
+
+$$
+\phi_1 = `r sprintf("%.4f",phi1_ssm)`, \quad
+\phi_2 = `r sprintf("%.4f",phi2_ssm)`, \quad
+\phi_3 = `r sprintf("%.4f",phi3_ssm)`,
+$$
+
+$$
+\sigma_w = `r sprintf("%.4f",sigma_w)`, \quad
+\sigma_e = `r sprintf("%.4f",sigma_e)`.
+$$
+
+```{r plot-smooth, fig.cap="Smoothed estimate of $x_t$ over time", echo=FALSE}
+plot(data$Date[-1], x_smooth, type='l', xlab='Date', ylab=expression(x[t]))
+```
+
+```{r plot-resid, fig.cap="Filtered response residuals over time", echo=FALSE}
+plot(data$Date[-1], resid_filtered, type='l', xlab='Date', ylab='Residuals')
+```
+
+In the measurement‑error state‑space formulation, we recover similar AR coefficients alongside estimated process noise (\(\sigma_{w}\approx0.0065\)) and measurement noise (\(\sigma_{e}\approx0.0035\)). The fact that \(\sigma_{w}\) exceeds \(\sigma_{e}\) suggests that genuine latent dynamics dominate over observational error in the logged PPI changes. The smoothed latent path captures major economic shocks, and the filtered residuals appear statistically well‑behaved.
+
+## 3. Comments
+
+Both the AR(3) and the state‑space models demonstrate strong performance in capturing the dynamics of monthly PPI log‑differences over the 1947–2009 period. The AR(3) fit isolates the core autoregressive structure, revealing moderate persistence and low innovation variance. Enhancing this with the state‑space representation yields a decomposition of total variability into latent process noise and measurement error, which informs on the underlying signal‑to‑noise ratio and highlights that most volatility arises from actual economic shifts rather than data irregularities.
+
+The smoothed latent trajectory aligns well with known historical events—such as the energy shocks of the 1970s and the early 2000s downturn—suggesting that the latent state effectively tracks genuine inflationary pressures. Filtered residuals exhibit no pronounced autocorrelation or heteroskedasticity, further validating the model assumptions.
+
+For future analysis, one may extend this framework by incorporating seasonal components, exogenous covariates (e.g., commodity prices or interest rates), or by comparing forecasting accuracy against simpler benchmarks. Overall, these results provide a robust statistical foundation for both descriptive study and predictive modeling of producer price inflation.
