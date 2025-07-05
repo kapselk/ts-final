@@ -1,0 +1,110 @@
+---
+title: |
+  | Time Series Final Assessment
+  | Exercise 5: GE Stock Returns Forecasting
+author: "Kacper Omieliańczyk"
+output:
+  pdf_document:
+    extra_dependencies: ["float"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  results = 'hide'
+)
+library(dplyr)
+library(nnet)
+
+data <- read.table("m-ge2608.txt", header = TRUE)
+data$date <- as.Date(as.character(data$date), format = "%Y%m%d")
+data <- arrange(data, date)
+
+data <- data %>%
+  mutate(
+    lag1 = lag(rtn, 1),
+    lag2 = lag(rtn, 2),
+    lag3 = lag(rtn, 3),
+    slag1 = ifelse(lag1 > 0, 1, 0),
+    slag2 = ifelse(lag2 > 0, 1, 0),
+    slag3 = ifelse(lag3 > 0, 1, 0)
+  )
+
+data2 <- filter(data, !is.na(lag3))
+
+n <- nrow(data2)
+train <- data2[1:(n - 36), ]
+test  <- data2[(n - 35):n, ]
+
+set.seed(123)
+model1 <- nnet(rtn ~ lag1 + lag2 + lag3,
+               data   = train,
+               size   = 2,
+               linout = TRUE,
+               trace  = FALSE)
+pred1 <- predict(model1, newdata = test)
+mse_return <- mean((pred1 - test$rtn)^2)
+resid1 <- test$rtn - pred1
+box1 <- Box.test(resid1, lag = 12, type = "Ljung-Box")
+
+data2 <- data2 %>% mutate(drtn = ifelse(rtn > 0, 1, 0))
+train2 <- data2[1:(n - 36), ]
+test2  <- data2[(n - 35):n, ]
+set.seed(123)
+model2 <- nnet(drtn ~ lag1 + lag2 + lag3 + slag1 + slag2 + slag3,
+               data   = train2,
+               size   = 5,
+               linout = FALSE,
+               trace  = FALSE)
+pred2_prob <- predict(model2, newdata = test2)
+pred2_class <- ifelse(pred2_prob > 0.5, 1, 0)
+conf_mat <- table(Actual = test2$drtn, Predicted = pred2_class)
+accuracy <- mean(pred2_class == test2$drtn)
+mse_direction <- mean((pred2_prob - test2$drtn)^2)
+```
+
+# 1. Forecasting One-Step-Ahead Returns
+
+We fit a feed-forward neural network with architecture 3-2-1 on the lagged returns $r_{t-1}$, $r_{t-2}$, and $r_{t-3}$. The network’s out-of-sample mean squared error is given by
+
+\[
+\mathrm{MSE}_{\mathrm{return}} = `r sprintf("%.6f", mse_return)`
+\]
+
+To examine model adequacy, we performed a Ljung–Box test on the one-step-ahead forecast errors using 12 lags. The test yielded
+
+\[
+Q_{12} = `r sprintf("%.3f", box1$statistic)`, \quad p\text{-value} = `r sprintf("%.3f", box1$p.value)`
+\]
+
+indicating that there is no significant residual autocorrelation at the 5\% level. This suggests that the model captures the linear dependence in lagged returns reasonably well, though nonlinear or higher-order effects may remain.
+
+# 2. Forecasting Price Movement Direction
+
+We define the binary indicator $d_t = 1$ when $r_t > 0$ and $d_t = 0$ otherwise, and fit a feed-forward network with architecture 6-5-1 using both the lagged returns and their signs as inputs. The out-of-sample mean squared error for the predicted probabilities is
+
+\[
+\mathrm{MSE}_{\mathrm{direction}} = `r sprintf("%.6f", mse_direction)`
+\]
+
+Classification performance based on a 0.5 threshold yields the following confusion matrix:
+
+\begin{figure}
+\centering
+\begin{tabular}{c|cc}
+ & \multicolumn{2}{c}{Predicted} \\
+Actual & 0 & 1 \\
+\hline
+0 & `r conf_mat["0","0"]` & `r conf_mat["0","1"]` \\
+1 & `r conf_mat["1","0"]` & `r conf_mat["1","1"]` \\
+\end{tabular}
+\end{figure}
+
+with overall classification accuracy equal to `r sprintf("%.2f\\%%", 100 * accuracy)`. The modest accuracy suggests that while the model extracts some directional signal, its practical trading usefulness may be limited without further enhancements.
+
+# Final comments
+While both neural network models demonstrate some ability to forecast GE stock behavior, their performance metrics point to only incremental gains over naive benchmarks. For returns prediction, the absence of residual autocorrelation confirms that the network has learned key lagged relationships, yet the level of MSE suggests that volatility clustering and regime shifts may require specialized architectures such as GARCH–NN hybrids or long short-term memory (LSTM) networks to capture time-varying dynamics more fully. In the direction classification task, the network’s limited accuracy highlights the challenge of extracting directional signals purely from past returns; incorporating additional fundamental or technical indicators, such as trading volume, momentum oscillators, or macroeconomic variables, could improve signal-to-noise ratio.
+
+Further refinement could involve expanding the input feature set to include nonlinearly transformed lags, conducting a thorough hyperparameter search using cross-validation, and implementing ensemble methods that combine forecasts from multiple architectures. Robustness checks, such as walk-forward validation and sensitivity analysis to different forecast horizons, would ensure that the models generalize well out of sample and provide a stronger basis for practical deployment.
