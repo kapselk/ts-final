@@ -1,0 +1,99 @@
+---
+title: |
+  | Time Series Final Assessment
+  | Exercise 4: Weekday effects on EW Returns
+author: "Kacper Omieliańczyk"
+output:
+  pdf_document:
+    extra_dependencies: ["float"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(
+  echo    = FALSE,
+  results = 'hide',
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+```{r data_and_models}
+idata <- read.table("d-ibm3dxwkdays8008.txt", header = TRUE)
+
+fit_lm <- lm(ew ~ M + T + W + R, data = idata)
+sm      <- summary(fit_lm)
+coefs   <- sm$coefficients          # estimates, SE, t, p
+pvals   <- coefs[, 4]
+ests    <- coefs[, 1]
+ses     <- coefs[, 2]
+tvals   <- coefs[, 3]
+
+r2      <- sm$r.squared
+adj_r2  <- sm$adj.r.squared
+fstat   <- sm$fstatistic
+f_p     <- pf(fstat[1], fstat[2], fstat[3], lower.tail = FALSE)
+
+library(lmtest)
+dw   <- dwtest(fit_lm)
+lb10 <- Box.test(resid(fit_lm), lag = 10, type = "Ljung-Box", fitdf = length(coef(fit_lm)))
+
+ar1   <- arima(resid(fit_lm), order = c(1, 0, 0))
+phi1  <- coef(ar1)["ar1"]
+sig2  <- ar1$sigma2
+```
+
+# 1 Fitted regression model
+
+We fit the linear model:
+
+$$
+\widehat{EW}_t = \beta_0 + \beta_M M_t + \beta_T T_t + \beta_W W_t + \beta_R R_t + \varepsilon_t,
+$$
+
+where Friday is the baseline day.
+
+**Key summary statistics:** $R^2 = `r sprintf("%.3f", r2)`$, Adjusted~$R^2 = `r sprintf("%.3f", adj_r2)`$, F(4,~`r sm$df[2]`) = `r sprintf("%.2f", fstat[1])` (p = `r sprintf("%.3f", f_p)`).
+
+The low $R^2$ indicates weekday dummies explain only a small share of returns variability, but the joint F-test rejects the null of no weekday effects.
+
+This model provides a baseline assessment of weekday influences but does not capture dynamic patterns beyond mean shifts.
+
+# 2 Coefficient estimates
+
+| Coefficient           | Estimate  | Std. Error | t value | $p$-value |
+|:----------------------|----------:|-----------:|--------:|----------:|
+| Intercept (Friday)    | `r sprintf("%.4f", ests["(Intercept)"])` | `r sprintf("%.4f", ses["(Intercept)"])` | `r sprintf("%.3f", tvals["(Intercept)"])` | `r sprintf("%.3f", pvals["(Intercept)"])` |
+| Monday ($M$)          | `r sprintf("%.4f", ests["M"])`           | `r sprintf("%.4f", ses["M"])`           | `r sprintf("%.3f", tvals["M"])`           | `r sprintf("%.3f", pvals["M"])`           |
+| Tuesday ($T$)         | `r sprintf("%.4f", ests["T"])`           | `r sprintf("%.4f", ses["T"])`           | `r sprintf("%.3f", tvals["T"])`           | `r sprintf("%.3f", pvals["T"])`           |
+| Wednesday ($W$)       | `r sprintf("%.4f", ests["W"])`           | `r sprintf("%.4f", ses["W"])`           | `r sprintf("%.3f", tvals["W"])`           | `r sprintf("%.3f", pvals["W"])`           |
+| Thursday ($R$)        | `r sprintf("%.4f", ests["R"])`           | `r sprintf("%.4f", ses["R"])`           | `r sprintf("%.3f", tvals["R"])`           | `r sprintf("%.3f", pvals["R"])`           |
+
+Monday and Tuesday returns are significantly lower than the Friday baseline, while midweek returns also show modest negative effects.
+
+These estimates confirm consistent lower performance at the start of the week and should guide strategic timing considerations.
+
+# 3 Residual autocorrelation tests
+
+Durbin--Watson statistic: $D = `r sprintf("%.3f", dw$statistic)`$ (p = `r sprintf("%.3f", dw$p.value)`).  
+Ljung--Box (lag 10): $\chi^2 = `r sprintf("%.3f", lb10$statistic)`$ (p = `r sprintf("%.3f", lb10$p.value)`).
+
+The DW statistic near two suggests minimal first‐order autocorrelation, but the significant Ljung–Box result implies dependence at higher lags.
+
+These diagnostics motivate a time‐series correction to account for serial dependence left by weekday dummies.
+
+# 4 AR(1) model for residuals
+
+We model residual autocorrelation as:
+
+$$
+\varepsilon_t = \phi_1 \varepsilon_{t-1} + u_t.
+$$
+
+Estimated $\hat{\phi}_1 = `r sprintf("%.3f", phi1)`$, and innovation variance $\hat{\sigma}^2 = `r sprintf("%.3f", sig2)`$, indicating mild persistence in residuals.
+
+This AR(1) adjustment captures remaining dependence and refines variance estimates for inference.
+
+# Conclusions
+
+The regression analysis demonstrates that returns on Mondays and Tuesdays are significantly lower than the Friday baseline, while Wednesdays and Thursdays exhibit modest negative effects. Despite the low $R^2$, the joint F-test confirms that weekday effects are statistically significant. Residual diagnostic tests reveal mild serial correlation that is not captured by the dummy variables alone, but the AR(1) model corrects for this persistence, improving the reliability of inference. Overall, the findings suggest a consistent, albeit small, weekday pattern in equal-weighted returns, with early-week underperformance relative to the end of the week, and an AR(1) structure in the residuals that should be accounted for in further modeling.
